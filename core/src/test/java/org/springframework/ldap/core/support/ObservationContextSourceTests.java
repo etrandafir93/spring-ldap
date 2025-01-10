@@ -16,11 +16,12 @@
 
 package org.springframework.ldap.core.support;
 
-import java.lang.reflect.Array;
-import java.lang.reflect.Method;
-import java.util.Arrays;
-import java.util.Hashtable;
-import java.util.stream.Stream;
+import io.micrometer.observation.tck.TestObservationRegistry;
+import io.micrometer.observation.tck.TestObservationRegistryAssert;
+import org.junit.jupiter.api.*;
+import org.junit.platform.commons.support.ModifierSupport;
+import org.springframework.ldap.core.DirContextOperations;
+import org.springframework.ldap.support.LdapUtils;
 
 import javax.naming.Name;
 import javax.naming.NamingException;
@@ -30,18 +31,15 @@ import javax.naming.directory.DirContext;
 import javax.naming.ldap.ExtendedRequest;
 import javax.naming.ldap.LdapContext;
 import javax.naming.ldap.StartTlsRequest;
-
-import io.micrometer.observation.tck.TestObservationRegistry;
-import io.micrometer.observation.tck.TestObservationRegistryAssert;
-import org.junit.jupiter.api.DynamicTest;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestFactory;
-import org.junit.platform.commons.support.ModifierSupport;
-
-import org.springframework.ldap.core.DirContextOperations;
-import org.springframework.ldap.support.LdapUtils;
+import java.lang.reflect.Array;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.Hashtable;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.junit.jupiter.api.DynamicContainer.dynamicContainer;
+import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
@@ -62,37 +60,28 @@ public class ObservationContextSourceTests {
 	private final LdapContext ldapCtx = (LdapContext) this.ldap.getReadWriteContext();
 
 	@TestFactory
-	Stream<DynamicTest> confirmObservabilityOfEachLdapContextMethod() {
-		return Arrays.stream(this.ldapCtx.getClass().getDeclaredMethods())
-			.filter(ModifierSupport::isPublic)
-			.map((method) -> DynamicTest.dynamicTest(methodSignature(method), () -> {
-				this.registry.clear();
-				Object[] args = Arrays.stream(method.getParameterTypes()).map(this::fuzzValue).toArray();
-				method.invoke(this.ldapCtx, args);
-			// @formatter:off
-				TestObservationRegistryAssert.assertThat(this.registry)
-					.hasObservationWithNameEqualTo("spring.ldap.dir.context.operations").that()
-					.hasContextualNameEqualTo("perform " + method.getName())
-					.hasBeenStarted().hasBeenStopped();
-				// @formatter:on
-			}));
+    @DisplayName("Confirm Observability")
+	Stream<DynamicNode> confirmObservabilityOfEachLdapContextMethod() {
+        return Stream.of(
+                dynamicContainer("LDAP Context", confirmObservability(this.ldapCtx)),
+                dynamicContainer("Each Dir Context", confirmObservability(this.dirCtx))
+        );
 	}
 
-	@TestFactory
-	Stream<DynamicTest> confirmObservabilityOfEachDirContextMethod() {
-		return Arrays.stream(this.dirCtx.getClass().getDeclaredMethods())
-			.filter(ModifierSupport::isPublic)
-			.map((method) -> DynamicTest.dynamicTest(methodSignature(method), () -> {
-				this.registry.clear();
-				Object[] args = Arrays.stream(method.getParameterTypes()).map(this::fuzzValue).toArray();
-				method.invoke(this.dirCtx, args);
-			// @formatter:off
-				TestObservationRegistryAssert.assertThat(this.registry)
-					.hasObservationWithNameEqualTo("spring.ldap.dir.context.operations").that()
-					.hasContextualNameEqualTo("perform " + method.getName())
-					.hasBeenStarted().hasBeenStopped();
-				// @formatter:on
-			}));
+	private Stream<DynamicTest> confirmObservability(Object context) {
+		return Arrays.stream(context.getClass().getDeclaredMethods())
+				.filter(ModifierSupport::isPublic)
+				.map((method) -> dynamicTest(methodSignature(method), () -> {
+					this.registry.clear();
+					Object[] args = Arrays.stream(method.getParameterTypes()).map(this::fuzzValue).toArray();
+					method.invoke(context, args);
+					// @formatter:off
+                    TestObservationRegistryAssert.assertThat(this.registry)
+                        .hasObservationWithNameEqualTo("spring.ldap.dir.context.operations").that()
+                        .hasContextualNameEqualTo("perform " + method.getName())
+                        .hasBeenStarted().hasBeenStopped();
+                    // @formatter:on
+				}));
 	}
 
 	String methodSignature(Method method) {
