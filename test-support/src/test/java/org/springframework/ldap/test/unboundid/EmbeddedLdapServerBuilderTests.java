@@ -33,7 +33,6 @@ import org.springframework.ldap.query.LdapQueryBuilder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-
 public class EmbeddedLdapServerBuilderTests {
 
 	private static String tempLogFile;
