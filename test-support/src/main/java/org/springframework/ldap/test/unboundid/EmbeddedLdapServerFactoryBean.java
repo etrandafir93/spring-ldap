@@ -47,8 +47,14 @@ public class EmbeddedLdapServerFactoryBean extends AbstractFactoryBean<EmbeddedL
 	}
 
 	@Override
-	protected EmbeddedLdapServer createInstance() throws Exception {
-		return EmbeddedLdapServer.newEmbeddedServer(this.partitionName, this.partitionSuffix, this.port);
+	protected EmbeddedLdapServer createInstance() {
+		EmbeddedLdapServer server = EmbeddedLdapServer.withPartitionSuffix(this.partitionSuffix)
+			.partitionName(this.partitionName)
+			.port(this.port)
+			.build();
+
+		server.start();
+		return server;
 	}
 
 	@Override

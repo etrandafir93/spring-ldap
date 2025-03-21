@@ -16,6 +16,8 @@
 
 package org.springframework.ldap.test.unboundid;
 
+import java.util.function.Consumer;
+
 import com.unboundid.ldap.listener.InMemoryDirectoryServer;
 import com.unboundid.ldap.listener.InMemoryDirectoryServerConfig;
 import com.unboundid.ldap.listener.InMemoryListenerConfig;
@@ -46,25 +48,29 @@ public final class EmbeddedLdapServer implements AutoCloseable {
 	}
 
 	/**
-	 * Creates a new {@link EmbeddedLdapServerBuilder}.
+	 * Creates a new {@link Builder} with a given partition suffix.
 	 *
 	 * @since 3.3
 	 */
-	public static EmbeddedLdapServerBuilder builder() {
-		return new EmbeddedLdapServerBuilder();
+	public static Builder withPartitionSuffix(String partitionSuffix) {
+		return new Builder(partitionSuffix);
 	}
 
 	/**
 	 * Creates and starts new embedded LDAP server.
+	 * @deprecated Use the builder pattern exposed via
+	 * {@link #withPartitionSuffix(String)} instead.
 	 */
+	@Deprecated(since = "3.3")
 	public static EmbeddedLdapServer newEmbeddedServer(String defaultPartitionName, String defaultPartitionSuffix,
-			int port) throws Exception {
-		InMemoryDirectoryServerConfig config = inMemoryDirectoryServerConfig(defaultPartitionSuffix, port);
-		Entry entry = ldapEntry(defaultPartitionName, defaultPartitionSuffix);
+			int port) {
+		EmbeddedLdapServer server = EmbeddedLdapServer.withPartitionSuffix(defaultPartitionSuffix)
+			.partitionName(defaultPartitionName)
+			.port(port)
+			.build();
 
-		InMemoryDirectoryServer directoryServer = inMemoryDirectoryServer(config, entry);
-		directoryServer.startListening();
-		return new EmbeddedLdapServer(directoryServer);
+		server.start();
+		return server;
 	}
 
 	/**
@@ -101,28 +107,88 @@ public final class EmbeddedLdapServer implements AutoCloseable {
 		this.directoryServer.shutDown(true);
 	}
 
-	static InMemoryDirectoryServerConfig inMemoryDirectoryServerConfig(String partitionSuffix, int port)
-			throws LDAPException {
-		InMemoryDirectoryServerConfig config = new InMemoryDirectoryServerConfig(partitionSuffix);
-		config.addAdditionalBindCredentials("uid=admin,ou=system", "secret");
-		config.setListenerConfigs(InMemoryListenerConfig.createLDAPConfig("LDAP", port));
-		config.setEnforceSingleStructuralObjectClass(false);
-		config.setEnforceAttributeSyntaxCompliance(true);
-		return config;
-	}
+	/**
+	 * Helper class for embedded Unboundid ldap server.
+	 *
+	 * @author Emanuel Trandafir
+	 * @since 3.3
+	 */
+	public static final class Builder {
 
-	static Entry ldapEntry(String defaultPartitionName, String defaultPartitionSuffix) throws LDAPException {
-		Entry entry = new Entry(new DN(defaultPartitionSuffix));
-		entry.addAttribute("objectClass", "top", "domain", "extensibleObject");
-		entry.addAttribute("dc", defaultPartitionName);
-		return entry;
-	}
+		private int port = 0;
 
-	static InMemoryDirectoryServer inMemoryDirectoryServer(InMemoryDirectoryServerConfig config, Entry entry)
-			throws LDAPException {
-		InMemoryDirectoryServer directoryServer = new InMemoryDirectoryServer(config);
-		directoryServer.add(entry);
-		return directoryServer;
+		private Consumer<InMemoryDirectoryServerConfig> configurationCustomizer = (__) -> {
+		};
+
+		private String partitionName = "jayway";
+
+		private final String partitionSuffix;
+
+		private Builder(String partitionSuffix) {
+			this.partitionSuffix = partitionSuffix;
+		}
+
+		public Builder port(int port) {
+			this.port = port;
+			return this;
+		}
+
+		public Builder configurationCustomizer(Consumer<InMemoryDirectoryServerConfig> configurationCustomizer) {
+			this.configurationCustomizer = configurationCustomizer;
+			return this;
+		}
+
+		public Builder partitionName(String defaultPartitionName) {
+			this.partitionName = defaultPartitionName;
+			return this;
+		}
+
+		/**
+		 * Builds and returns a {@link EmbeddedLdapServer}.
+		 * <p>
+		 * In order to start the server, you should call
+		 * {@link EmbeddedLdapServer#start()}.
+		 * @return a new {@link EmbeddedLdapServer}.
+		 */
+		public EmbeddedLdapServer build() {
+			try {
+				InMemoryDirectoryServerConfig config = inMemoryDirectoryServerConfig(this.partitionSuffix, this.port);
+				this.configurationCustomizer.accept(config);
+
+				Entry entry = ldapEntry(this.partitionName, this.partitionSuffix);
+				InMemoryDirectoryServer directoryServer = inMemoryDirectoryServer(config, entry);
+				return new EmbeddedLdapServer(directoryServer);
+			}
+			catch (Exception ex) {
+				throw new RuntimeException(ex);
+			}
+		}
+
+		private static InMemoryDirectoryServerConfig inMemoryDirectoryServerConfig(String partitionSuffix, int port)
+				throws LDAPException {
+			InMemoryDirectoryServerConfig config = new InMemoryDirectoryServerConfig(partitionSuffix);
+			config.addAdditionalBindCredentials("uid=admin,ou=system", "secret");
+			config.setListenerConfigs(InMemoryListenerConfig.createLDAPConfig("LDAP", port));
+			config.setEnforceSingleStructuralObjectClass(false);
+			config.setEnforceAttributeSyntaxCompliance(true);
+			return config;
+		}
+
+		private static Entry ldapEntry(String defaultPartitionName, String defaultPartitionSuffix)
+				throws LDAPException {
+			Entry entry = new Entry(new DN(defaultPartitionSuffix));
+			entry.addAttribute("objectClass", "top", "domain", "extensibleObject");
+			entry.addAttribute("dc", defaultPartitionName);
+			return entry;
+		}
+
+		private static InMemoryDirectoryServer inMemoryDirectoryServer(InMemoryDirectoryServerConfig config,
+				Entry entry) throws LDAPException {
+			InMemoryDirectoryServer directoryServer = new InMemoryDirectoryServer(config);
+			directoryServer.add(entry);
+			return directoryServer;
+		}
+
 	}
 
 }

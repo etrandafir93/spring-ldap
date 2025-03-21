@@ -109,9 +109,7 @@ The following bean definition creates an embedded LDAP server:
 ====
 [source,xml]
 ----
-<bean id="embeddedAlso, `org.springframework.ldap.test.unboundid.LdapTestUtils` provide methods to programmatically work with an embedded LDAP server.
-Also, `org.springframework.ldap.test.unboundid.LdapTestUtils` provide methods to programmatically work with an embedded LDAP server.
-" class="org.springframework.ldap.test.EmbeddedLdapServerFactoryBean">
+<bean id="embeddedLdapServer" class="org.springframework.ldap.test.EmbeddedLdapServerFactoryBean">
     <property name="partitionName" value="example"/>
     <property name="partitionSuffix" value="dc=261consulting,dc=com" />
     <property name="port" value="9321" />
@@ -188,11 +186,10 @@ The following bean definition creates an embedded LDAP server:
 ----
 @Bean
 EmbeddedLdapServer embeddedLdapServer() {
-    return EmbeddedLdapServer.builder()
-        .withPort(18881)
-        .withPartitionName("jayway")
-        .withPartitionSuffix("dc=jayway,dc=se")
-        .withConfigurationCustomizer((config) -> config.setCodeLogDetails(tempLogFile, true))
+    return EmbeddedLdapServer.withPartitionSuffix("dc=jayway,dc=se")
+        .partitionName("jayway")
+        .port(18881)
+        .configurationCustomizer((config) -> config.setCodeLogDetails(tempLogFile, true))
         .build();
 }
 ----

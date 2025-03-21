@@ -16,80 +16,178 @@
 
 package org.springframework.ldap.test.unboundid;
 
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import javax.naming.NamingException;
+import javax.naming.directory.Attributes;
+
 import com.unboundid.ldap.listener.InMemoryDirectoryServer;
 import com.unboundid.ldap.listener.InMemoryDirectoryServerConfig;
 import com.unboundid.ldap.listener.InMemoryListenerConfig;
+import org.junit.Before;
 import org.junit.Test;
+
+import org.springframework.ldap.core.AttributesMapper;
+import org.springframework.ldap.core.LdapTemplate;
+import org.springframework.ldap.core.support.LdapContextSource;
+import org.springframework.ldap.query.LdapQueryBuilder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 public class EmbeddedLdapServerTests {
 
-	@Test
-	public void shouldStartAndCloseServer() throws Exception {
-		int port = SocketUtils.getFreePort();
-		assertThat(SocketUtils.isPortOpen(port)).isFalse();
+	private int port;
 
-		EmbeddedLdapServer server = EmbeddedLdapServer.newEmbeddedServer("jayway", "dc=jayway,dc=se", port);
-		assertThat(SocketUtils.isPortOpen(port)).isTrue();
-
-		server.close();
-		assertThat(SocketUtils.isPortOpen(port)).isFalse();
+	@Before
+	public void setUp() {
+		this.port = getFreePort();
 	}
 
 	@Test
-	public void shouldStartAndAutoCloseServer() throws Exception {
-		int port = SocketUtils.getFreePort();
-		assertThat(SocketUtils.isPortOpen(port)).isFalse();
+	public void shouldBuildButNotStartTheServer() {
+		EmbeddedLdapServer.withPartitionSuffix("dc=jayway,dc=se").partitionName("jayway").port(this.port).build();
 
-		try (EmbeddedLdapServer ignored = EmbeddedLdapServer.newEmbeddedServer("jayway", "dc=jayway,dc=se", port)) {
-			assertThat(SocketUtils.isPortOpen(port)).isTrue();
+		assertPortIsFree(this.port);
+	}
+
+	@Test
+	public void shouldBuildTheServerWithCustomPort() {
+		EmbeddedLdapServer.Builder serverBuilder = EmbeddedLdapServer.withPartitionSuffix("dc=jayway,dc=se")
+			.partitionName("jayway")
+			.port(this.port);
+
+		try (EmbeddedLdapServer server = serverBuilder.build()) {
+			server.start();
+			assertPortIsUsed(this.port);
 		}
-		assertThat(SocketUtils.isPortOpen(port)).isFalse();
+		assertPortIsFree(this.port);
+	}
+
+	@Test
+	public void shouldBuildLdapServerAndApplyCustomConfiguration() throws IOException {
+		String tempLogFile = Files.createTempFile("ldap-log-", ".txt").toAbsolutePath().toString();
+
+		EmbeddedLdapServer.Builder serverBuilder = EmbeddedLdapServer.withPartitionSuffix("dc=jayway,dc=se")
+			.port(this.port)
+			.partitionName("jayway")
+			.configurationCustomizer((config) -> config.setCodeLogDetails(tempLogFile, true));
+
+		try (EmbeddedLdapServer server = serverBuilder.build()) {
+			server.start();
+
+			ldapTemplate("dc=jayway,dc=se", this.port)
+				.search(LdapQueryBuilder.query().where("objectclass").is("person"), new AttributesMapper<>() {
+					public String mapFromAttributes(Attributes attrs) throws NamingException {
+						return (String) attrs.get("cn").get();
+					}
+				});
+		}
+
+		assertThat(Path.of(tempLogFile))
+			.as("Applying the custom configuration should create a log file and populate it with the request")
+			.isNotEmptyFile();
+	}
+
+	@Test
+	public void shouldStartAndCloseServer() {
+		assertPortIsFree(this.port);
+
+		EmbeddedLdapServer server = EmbeddedLdapServer.newEmbeddedServer("jayway", "dc=jayway,dc=se", this.port);
+		assertPortIsUsed(this.port);
+
+		server.close();
+		assertPortIsFree(this.port);
+	}
+
+	@Test
+	public void shouldStartAndAutoCloseServer() {
+		assertPortIsFree(this.port);
+
+		try (EmbeddedLdapServer ignored = EmbeddedLdapServer.newEmbeddedServer("jayway", "dc=jayway,dc=se",
+				this.port)) {
+			assertPortIsUsed(this.port);
+		}
+		assertPortIsFree(this.port);
 	}
 
 	@Test
 	public void shouldStartAndCloseServerViaLdapTestUtils() throws Exception {
-		int port = SocketUtils.getFreePort();
-		assertThat(SocketUtils.isPortOpen(port)).isFalse();
+		assertPortIsFree(this.port);
 
-		LdapTestUtils.startEmbeddedServer(port, "dc=jayway,dc=se", "jayway");
-		assertThat(SocketUtils.isPortOpen(port)).isTrue();
+		LdapTestUtils.startEmbeddedServer(this.port, "dc=jayway,dc=se", "jayway");
+		assertPortIsUsed(this.port);
 
 		LdapTestUtils.shutdownEmbeddedServer();
-		assertThat(SocketUtils.isPortOpen(port)).isFalse();
+		assertPortIsFree(this.port);
 	}
 
 	@Test
-	public void startWhenNewEmbeddedServerThenException() throws Exception {
-		int port = SocketUtils.getFreePort();
-		EmbeddedLdapServer server = EmbeddedLdapServer.newEmbeddedServer("jayway", "dc=jayway,dc=se", port);
+	public void startWhenNewEmbeddedServerThenException() {
+		EmbeddedLdapServer server = EmbeddedLdapServer.newEmbeddedServer("jayway", "dc=jayway,dc=se", this.port);
 		assertThatExceptionOfType(IllegalArgumentException.class).isThrownBy(server::start);
 	}
 
 	@Test
 	public void startWhenUnstartedThenWorks() throws Exception {
-		int port = SocketUtils.getFreePort();
 		InMemoryDirectoryServerConfig config = new InMemoryDirectoryServerConfig("dc=jayway,dc=se");
-		config.setListenerConfigs(InMemoryListenerConfig.createLDAPConfig("LDAP", port));
+		config.setListenerConfigs(InMemoryListenerConfig.createLDAPConfig("LDAP", this.port));
 		InMemoryDirectoryServer ds = new InMemoryDirectoryServer(config);
 		try (EmbeddedLdapServer server = new EmbeddedLdapServer(ds)) {
 			server.start();
-			assertThat(SocketUtils.isPortOpen(port)).isTrue();
+			assertPortIsUsed(this.port);
 		}
 	}
 
 	@Test
 	public void startWhenAlreadyStartedThenFails() throws Exception {
-		int port = SocketUtils.getFreePort();
 		InMemoryDirectoryServerConfig config = new InMemoryDirectoryServerConfig("dc=jayway,dc=se");
-		config.setListenerConfigs(InMemoryListenerConfig.createLDAPConfig("LDAP", port));
+		config.setListenerConfigs(InMemoryListenerConfig.createLDAPConfig("LDAP", this.port));
 		InMemoryDirectoryServer ds = new InMemoryDirectoryServer(config);
 		try (EmbeddedLdapServer server = new EmbeddedLdapServer(ds)) {
 			server.start();
-			assertThat(SocketUtils.isPortOpen(port)).isTrue();
+			assertPortIsUsed(this.port);
 			assertThatExceptionOfType(IllegalArgumentException.class).isThrownBy(server::start);
+		}
+	}
+
+	private static LdapTemplate ldapTemplate(String base, int port) {
+		LdapContextSource ctx = new LdapContextSource();
+		ctx.setBase(base);
+		ctx.setUrl("ldap://127.0.0.1:" + port);
+		ctx.setUserDn("uid=admin,ou=system");
+		ctx.setPassword("secret");
+		ctx.afterPropertiesSet();
+		return new LdapTemplate(ctx);
+	}
+
+	private static void assertPortIsFree(int port) {
+		assertThat(isPortOpen(port)).isFalse();
+	}
+
+	private static void assertPortIsUsed(int port) {
+		assertThat(isPortOpen(port)).isTrue();
+	}
+
+	private static boolean isPortOpen(int port) {
+		try (Socket ignored = new Socket("localhost", port)) {
+			return true;
+		}
+		catch (IOException ex) {
+			return false;
+		}
+	}
+
+	private static int getFreePort() {
+		try (ServerSocket serverSocket = new ServerSocket(0)) {
+			return serverSocket.getLocalPort();
+		}
+		catch (IOException ex) {
+			throw new RuntimeException("Could not get a free port", ex);
 		}
 	}
 
