@@ -28,8 +28,8 @@ import javax.naming.directory.Attributes;
 import com.unboundid.ldap.listener.InMemoryDirectoryServer;
 import com.unboundid.ldap.listener.InMemoryDirectoryServerConfig;
 import com.unboundid.ldap.listener.InMemoryListenerConfig;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import org.springframework.ldap.core.AttributesMapper;
 import org.springframework.ldap.core.LdapTemplate;
@@ -43,7 +43,7 @@ public class EmbeddedLdapServerTests {
 
 	private int port;
 
-	@Before
+	@BeforeEach
 	public void setUp() throws IOException {
 		this.port = getFreePort();
 	}
