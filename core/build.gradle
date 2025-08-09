@@ -48,6 +48,7 @@ dependencies {
     testImplementation "org.springframework:spring-test"
     testImplementation "org.assertj:assertj-core"
     testImplementation "com.unboundid:unboundid-ldapsdk"
+    testImplementation project(":spring-ldap-test")
 }
 
 compileTestJava {
